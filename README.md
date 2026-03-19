@@ -1,7 +1,7 @@
-## Multisession notebook
-# Systemy Rozproszone
+# Multisession notebook
+## Systemy Rozproszone
 
-# Authors
+## Authors
 - Łukasz Florek
 - Konrad Czerniej
 - Jakub Janik
