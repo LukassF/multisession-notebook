@@ -3,6 +3,7 @@ import os
 from sqlalchemy.orm import Session
 from app.features.notebooks.models.notebook import Notebook
 import json
+from app.core.errors.error_with_code import ErrorWithCode
 
 DATA_DIR = "data"
 
@@ -43,4 +44,4 @@ def create_notebook_service(db: Session, title: str, admin_id: int):
         if "file_path" in locals() and os.path.exists(file_path):
             os.remove(file_path)
 
-        raise ValueError(f"Failed to create notebook and file: {str(e)}")
+        raise ErrorWithCode(f"Failed to create notebook and file: {str(e)}", 500)

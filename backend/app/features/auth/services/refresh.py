@@ -3,9 +3,8 @@ from app.features.auth.utils import validate_email, verify_password, generate_au
 from app.features.users.models.user import User
 from app.features.auth.models.refresh_token import RefreshToken
 from app.features.auth.dto.refresh_dto import RefreshDto
-import jwt
 from app.features.auth.utils import decode_auth_token
-
+from app.core.errors.error_with_code import ErrorWithCode
 from dotenv import load_dotenv
 import os
 
@@ -21,13 +20,13 @@ def refresh_service(db: Session, data: RefreshDto):
     )
     user_id: str = payload.get("sub")
     if user_id is None:
-        raise ValueError("Invalid refresh token")
+        raise ErrorWithCode("Invalid refresh token", 400)
 
     existing_refresh_token = find_refresh_token(
         db, user_id=int(user_id), refresh_token=data.refresh_token
     )
     if not existing_refresh_token:
-        raise ValueError("Refresh token not found or does not match")
+        raise ErrorWithCode("Refresh token not found or does not match", 400)
 
     access_token = generate_auth_token(
         int(user_id), secret_key=ACCESS_SECRET, expiration_minutes=10

@@ -2,6 +2,7 @@ from app.core.kafka.producer_config import kafka_manager
 import time
 from sqlalchemy.orm import Session
 from app.features.notebooks.models.notebook import Notebook
+from app.core.errors.error_with_code import ErrorWithCode
 
 
 async def append_to_notebook_service(
@@ -9,18 +10,26 @@ async def append_to_notebook_service(
 ):
     notebook = db.query(Notebook).filter(Notebook.id == notebook_id).first()
     if not notebook:
-        return {"message": "Notebook not found"}, 404
+        raise ErrorWithCode("Notebook not found", 404)
+
+    is_not_collaborator = not notebook.collaborators or str(auth_user_id) not in [
+        str(c) for c in notebook.collaborators
+    ]
+
+    if str(notebook.admin_id) != str(auth_user_id) and is_not_collaborator:
+        raise ErrorWithCode("Only admin or collaborators can append to notebook", 403)
 
     payload = {
         "notebook_id": notebook_id,
         "content": content,
         "user_id": auth_user_id,
+        # track updates in collaborators and admin_id to save the state in cache
+        # to avoid hitting the database with access control checks when polling for updates
+        "admin_id": notebook.admin_id,
+        "collaborators": notebook.collaborators or [],
         "timestamp": time.time(),
     }
 
     await kafka_manager.send_message("notebook_updates", payload)
 
-    # 202 accepted - indicatesthat the request has been accepted for processing,
-    # but the processing has not been completed. This is appropriate here since
-    # we're sending the update to a worker and we don't know when it will be processed.
-    return {"status": "sent_to_worker", "notebook_id": notebook_id}, 202
+    return notebook_id

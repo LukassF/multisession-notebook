@@ -56,6 +56,8 @@ class NotebookActor(threading.Thread):
                     "notebook_id": self.notebook_id,
                     "model_version": self.context["model_version"],
                     "last_changes": self.context["cache"],
+                    "admin_id": task.get("admin_id", "unknown"),
+                    "collaborators": task.get("collaborators", []),
                     "updated_at": time.time(),
                 },
                 f,

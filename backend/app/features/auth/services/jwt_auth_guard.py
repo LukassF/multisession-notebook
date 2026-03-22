@@ -4,6 +4,7 @@ import jwt
 from dotenv import load_dotenv
 import os
 from app.features.auth.utils import decode_auth_token
+from app.core.errors.error_with_code import ErrorWithCode
 
 # for swagger documentation
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -15,10 +16,9 @@ ALGORITHM = os.getenv("ALGORITHM")
 
 
 async def jwt_auth_guard(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
+    credentials_exception = ErrorWithCode(
+        "Could not validate credentials",
+        status.HTTP_401_UNAUTHORIZED,
     )
     try:
         payload = decode_auth_token(

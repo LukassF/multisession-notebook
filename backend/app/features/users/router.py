@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from app.features.auth.services.jwt_auth_guard import jwt_auth_guard
 from sqlalchemy.orm import Session
 from app.core.database.index import get_db
 from app.features.users.services.get_user_by_id import get_user_by_id_service
+from app.core.errors.error_with_code import ErrorWithCode
 
 users = APIRouter(prefix="/api/users", tags=["Users"])
 
@@ -17,12 +19,16 @@ async def get_user_info(
 
     try:
         current_user = get_user_by_id_service(db, target_id)
-        if not current_user:
-            return {"message": "User not found", "data": None}
 
-        return {
-            "message": "User info retrieved successfully",
-            "data": current_user.to_dict(),
-        }
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "User info retrieved successfully",
+                "data": current_user.to_dict(),
+            },
+        )
     except Exception as e:
-        return {"message": "An error occurred", "error": str(e)}
+        return HTTPException(
+            status_code=e.code if isinstance(e, ErrorWithCode) else 500,
+            detail={"message": "An error occurred", "error": str(e)},
+        )

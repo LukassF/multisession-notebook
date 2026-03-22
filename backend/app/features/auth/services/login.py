@@ -3,7 +3,7 @@ from app.features.auth.utils import validate_email, verify_password, generate_au
 from app.features.users.models.user import User
 from app.features.auth.models.refresh_token import RefreshToken
 from app.features.auth.dto.login_dto import LoginDto
-
+from app.core.errors.error_with_code import ErrorWithCode
 from dotenv import load_dotenv
 import os
 
@@ -14,14 +14,13 @@ REFRESH_SECRET = os.getenv("REFRESH_SECRET")
 
 def login_service(db: Session, data: LoginDto, device_id: str):
     if not validate_email(data.email):
-        raise ValueError("Invalid email format")
+        raise ErrorWithCode("Invalid email format", 400)
 
     existing_user = db.query(User).filter(User.email == data.email).first()
     if not existing_user:
-        raise ValueError("User with this email doesn't exist")
-
+        raise ErrorWithCode("User with this email doesn't exist", 404)
     if not verify_password(data.password, existing_user.password):
-        raise ValueError("Invalid password")
+        raise ErrorWithCode("Invalid password", 400)
 
     access_token = generate_auth_token(
         existing_user.id, secret_key=ACCESS_SECRET, expiration_minutes=10
@@ -44,7 +43,7 @@ def insert_refresh_token(
     refresh_token: str, user_id: int, device_id: str, executor: Session
 ):
     if not refresh_token or not user_id:
-        raise ValueError("Refresh token and user ID must be provided")
+        raise ErrorWithCode("Refresh token and user ID must be provided", 400)
 
     existing_token_entry = (
         executor.query(RefreshToken)

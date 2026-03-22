@@ -2,15 +2,16 @@ from sqlalchemy.orm import Session
 from app.features.auth.utils import hash_password, validate_email
 from app.features.users.models.user import User
 from app.features.auth.dto.signup_dto import SignUpDto
+from app.core.errors.error_with_code import ErrorWithCode
 
 
 def signup_service(db: Session, data: SignUpDto):
     if not validate_email(data.email):
-        raise ValueError("Invalid email format")
+        raise ErrorWithCode("Invalid email format", 400)
 
     existing_user = db.query(User).filter(User.email == data.email).first()
     if existing_user:
-        raise ValueError("User with this email already exists")
+        raise ErrorWithCode("User with this email already exists", 400)
 
     hashed_pwd = hash_password(data.password)
     new_user = User(
