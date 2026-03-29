@@ -72,5 +72,20 @@ services:
       - kafka
       - db
 
+  frontend:
+    build:
+      context: ./frontend
+    restart: on-failure
+    environment:
+      - BACKEND_URL=http://api:8000
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      - api
+    networks:
+      - default
+
 volumes:
   postgres_data:

@@ -49,11 +49,16 @@ class NotebookActor(threading.Thread):
         if len(self.context["cache"]) > 5:
             self.context["cache"].pop(0)
 
+        # Konstruuj pełną zawartość z wszystkich zmian lub użyj bezpośrednio
+        full_content = task.get("content", "")
+
         cache_path = f"data/notebook_{self.notebook_id}/cache.json"
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(
                 {
                     "notebook_id": self.notebook_id,
+                    "title": task.get("title", "Notatnik"),
+                    "content": full_content,  # ← DODANE: pełna zawartość dla /poll
                     "model_version": self.context["model_version"],
                     "last_changes": self.context["cache"],
                     "admin_id": task.get("admin_id", "unknown"),
