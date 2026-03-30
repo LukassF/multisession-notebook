@@ -29,7 +29,11 @@ def create_notebook_service(db: Session, title: str, admin_id: int):
         cache_path = f"{notebook_path}/cache.json"
         initial_cache = {
             "notebook_id": notebook_uuid,
+            "title": title,
+            "admin_id": admin_id,
+            "collaborators": [],
             "last_entries": [],
+            "content": ""
         }
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(initial_cache, f)
