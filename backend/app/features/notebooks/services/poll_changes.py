@@ -21,10 +21,16 @@ def poll_notebook_changes_service(notebook_uuid: str, auth_user_id: str):
 
         admin_id = cache_data.get("admin_id")
         collaborators = cache_data.get("collaborators", [])
-        is_not_collaborator = not collaborators or str(auth_user_id) not in [
-            str(c) for c in collaborators
-        ]
-        if admin_id != auth_user_id and is_not_collaborator:
+
+        # Normaliz both to strings for comparison
+        auth_user_id_str = str(auth_user_id) if auth_user_id else None
+        admin_id_str = str(admin_id) if admin_id else None
+        collaborators_str = [str(c) for c in collaborators]
+
+        is_not_collaborator = not collaborators_str or auth_user_id_str not in collaborators_str
+
+        # User has access if they are the admin OR if they are a collaborator
+        if admin_id_str != auth_user_id_str and is_not_collaborator:
             raise ErrorWithCode("User does not have access to this notebook", 403)
 
         return cache_data

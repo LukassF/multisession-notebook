@@ -1,0 +1,14 @@
+{
+    "notebook_id": "0ee65b6a-d54a-4507-9f3a-dfe4a764e029",
+    "model_version": "v1-embedding",
+    "last_changes": [
+        {
+            "content": "TestKafka",
+            "author_id": "1",
+            "timestamp": 1774809061.4762604
+        }
+    ],
+    "admin_id": 1,
+    "collaborators": [],
+    "updated_at": 1774809061.5280552
+}
