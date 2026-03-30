@@ -1,4 +1,0 @@
-Notebook: Mój Notatnik Projektowy
-Created by: 1
----
-TestKafka
