@@ -22,7 +22,7 @@ async def append_to_notebook_service(
     payload = {
         "notebook_id": notebook_id,
         "content": content,
-        "title": notebook.title,  # ← DODANE: tytuł notatnika
+        "title": notebook.title,
         "user_id": auth_user_id,
         # track updates in collaborators and admin_id to save the state in cache
         # to avoid hitting the database with access control checks when polling for updates

@@ -1,3 +1,4 @@
+import time
 import uuid
 import os
 from sqlalchemy.orm import Session
@@ -21,19 +22,32 @@ def create_notebook_service(db: Session, title: str, admin_id: int):
         if not os.path.exists(notebook_path):
             os.makedirs(notebook_path)
 
-        file_path = f"{notebook_path}/content.txt"
+        file_path = f"{notebook_path}/content.json"
 
-        with open(file_path, "x", encoding="utf-8") as f:
-            f.write(f"Notebook: {title}\nCreated by: {admin_id}\n---\n")
-
-        cache_path = f"{notebook_path}/cache.json"
-        initial_cache = {
+        notebook_metadata = {
             "notebook_id": notebook_uuid,
             "title": title,
             "admin_id": admin_id,
             "collaborators": [],
+            "updated_at": time.time(),
+            "model_version": "",
+        }
+
+        with open(file_path, "x", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "title": f"{title}",
+                    "metadata": notebook_metadata,
+                    "content_event_chain": [],
+                },
+                f,
+            )
+
+        cache_path = f"{notebook_path}/cache.json"
+        initial_cache = {
+            "title": title,
+            "metadata": notebook_metadata,
             "last_entries": [],
-            "content": ""
         }
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(initial_cache, f)

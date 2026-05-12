@@ -26,6 +26,7 @@ class SessionManager:
             if nb_id not in self.active_sessions:
                 actor = NotebookActor(nb_id)
                 self.active_sessions[nb_id] = actor
+                # Start the actor thread to listen for tasks
                 actor.start()
 
             self.active_sessions[nb_id].add_task(data)
