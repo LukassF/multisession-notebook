@@ -38,9 +38,11 @@ def create_notebook_service(db: Session, title: str, admin_id: int):
                 {
                     "title": f"{title}",
                     "metadata": notebook_metadata,
+                    "version": 0,
                     "content_event_chain": [],
                 },
                 f,
+                indent=4,
             )
 
         cache_path = f"{notebook_path}/cache.json"

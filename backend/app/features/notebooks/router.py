@@ -15,7 +15,9 @@ from app.features.notebooks.services.invite_to_notebook import (
     invite_to_notebook_service,
 )
 from app.core.errors.error_with_code import ErrorWithCode
-
+from app.features.notebooks.services.get_user_related_notebooks import (
+    get_user_related_notebooks_service,
+)
 
 notebooks = APIRouter(prefix="/api/notebooks", tags=["Notebooks"])
 
@@ -112,6 +114,25 @@ async def poll_notebook_changes(
         return HTTPException(
             detail={
                 "message": "An error occurred while polling notebook changes",
+                "error": str(e),
+            },
+            status_code=e.code if isinstance(e, ErrorWithCode) else 500,
+        )
+
+
+@notebooks.get("/")
+async def list_user_notebooks(
+    auth_user_id: str = Depends(jwt_auth_guard), db: Session = Depends(get_db)
+):
+    try:
+        result = get_user_related_notebooks_service(db, auth_user_id)
+        return JSONResponse(
+            status_code=200, content={"message": "Notebooks fetched", "data": result}
+        )
+    except Exception as e:
+        return HTTPException(
+            detail={
+                "message": "An error occurred while fetching notebooks",
                 "error": str(e),
             },
             status_code=e.code if isinstance(e, ErrorWithCode) else 500,
