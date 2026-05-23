@@ -32,6 +32,7 @@ class ContentEntry(TypedDict):
     char_start: Optional[int] = None
     char_end: Optional[int] = None
     text: Optional[str] = None
+    length: Optional[int] = None
     base_version: Optional[int] = None
     change_id: Optional[str] = None
 
@@ -63,9 +64,10 @@ class NotebookActor(threading.Thread):
             "line_end": task.get("line_end"),  # optional
             "char_start": task.get("char_start"),  # optional
             "char_end": task.get("char_end"),  # optional
-            "text": task.get(
-                "content", ""
-            ),  # optional, zawartość do wstawienia lub zastąpienia
+            "length": task.get("length"),  # optional, dla delete
+            "text": task.get("text")
+            if task.get("text") is not None
+            else task.get("content", ""),
             "author_id": task.get("user_id", "unknown"),
             "timestamp": task.get("timestamp", time.time()),
             "base_version": task.get(

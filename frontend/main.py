@@ -1,15 +1,17 @@
 import streamlit as st
 import requests
 import time
+import difflib
 from typing import Optional, Dict, Any
 import os
 
 try:
-    from streamlit_autorefresh import rerun_if_updated
+    from streamlit_autorefresh import st_autorefresh
 except ImportError:
-    rerun_if_updated = None
+    st_autorefresh = None
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+AUTO_REFRESH_INTERVAL_MS = 5000
 
 
 # Inicjalizacja session state
@@ -31,6 +33,15 @@ if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
 if "last_loaded_notebook_id" not in st.session_state:
     st.session_state.last_loaded_notebook_id = None
+
+
+def _clear_editor_widget() -> None:
+    st.session_state.pop("notebook_editor", None)
+
+
+def _trigger_autorefresh(key: str) -> None:
+    if st.session_state.auto_refresh and st_autorefresh is not None:
+        st_autorefresh(interval=AUTO_REFRESH_INTERVAL_MS, key=key)
 
 
 def _refresh_access_token() -> bool:
@@ -138,6 +149,121 @@ def make_request(method: str, endpoint: str, data: Optional[Dict[str, Any]] = No
         return None, f"Błąd: {str(e)}"
 
 
+def assemble_text_from_events(data: Optional[Dict[str, Any]]) -> str:
+    if not data or not isinstance(data, dict):
+        return ""
+
+    root = data.get("data", data)
+    if not isinstance(root, dict):
+        return ""
+
+    chain = root.get("content_event_chain", [])
+    if isinstance(chain, list) and chain:
+        pass
+    elif root.get("content") is not None:
+        return str(root.get("content"))
+    else:
+        chain = []
+    if not isinstance(chain, list) or not chain:
+        return ""
+
+    # Ensure events are applied in server order
+    chain = sorted(chain, key=lambda x: x.get("server_version", 0))
+
+    buffer: list[str] = []
+    for event in chain:
+        if not isinstance(event, dict):
+            continue
+
+        op = event.get("op")
+        # Prefer char_start (backend format), fall back to index
+        index = event.get("char_start") if event.get("char_start") is not None else event.get("index", 0)
+        try:
+            index = int(index)
+        except Exception:
+            index = 0
+
+        text = event.get("text", "") or ""
+        length = int(event.get("length", 0) or 0)
+
+        if op == "insert":
+            for i, ch in enumerate(text):
+                insert_pos = max(0, min(len(buffer), index + i))
+                buffer.insert(insert_pos, ch)
+        elif op == "delete":
+            if index < 0:
+                continue
+            if index < len(buffer):
+                del buffer[index : index + length]
+        elif op == "replace":
+            new_text = text if text else event.get("content", "")
+            buffer = list(new_text)
+
+    return "".join(buffer)
+
+
+def _line_col_from_index(text: str, index: int) -> tuple[int, int]:
+    line = text.count("\n", 0, index) + 1
+    last_newline = text.rfind("\n", 0, index)
+    col = index - last_newline - 1 if last_newline != -1 else index
+    return line, col
+
+
+def compute_edit_operation(old_text: str, new_text: str) -> Optional[Dict[str, Any]]:
+    if old_text == new_text:
+        return None
+
+    matcher = difflib.SequenceMatcher(None, old_text, new_text)
+    ops = [op for op in matcher.get_opcodes() if op[0] != "equal"]
+
+    if len(ops) == 1:
+        tag, i1, i2, j1, j2 = ops[0]
+        line, col = _line_col_from_index(old_text, i1)
+
+        if tag == "delete":
+            return {
+                "op": "delete",
+                "line_start": line,
+                "char_start": col,
+                "text": "",
+                "length": i2 - i1,
+            }
+        if tag == "insert":
+            return {
+                "op": "insert",
+                "line_start": line,
+                "char_start": col,
+                "text": new_text[j1:j2],
+            }
+        if tag == "replace":
+            return {
+                "op": "replace",
+                "line_start": line,
+                "char_start": col,
+                "text": new_text[j1:j2],
+                "length": i2 - i1,
+            }
+
+    # Fallback: wyślij pełne nadpisanie, jeżeli zmiana jest złożona.
+    return {"op": "replace", "text": new_text, "line_start": 1, "char_start": 0}
+
+
+def build_update_payload(op_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Mapuj operację edycji na format oczekiwany przez API i workera."""
+    payload = dict(op_data)
+    op = payload.get("op", "insert")
+
+    if op == "delete":
+        payload.setdefault("content", "")
+        payload.setdefault("text", "")
+    elif op in ("insert", "replace"):
+        text = payload.get("text", "")
+        payload["content"] = text
+
+    payload.setdefault("content", payload.get("text", ""))
+    return payload
+
+
 def sidebar_auth():
     """Obsługa logowania i rejestracji w sidebar"""
     st.sidebar.title("🔐 Autoryzacja")
@@ -214,18 +340,24 @@ def sidebar_auth():
                         st.rerun()
 
 
-def load_notebook_content(notebook_id: str) -> bool:
+def load_notebook_content(notebook_id: str, *, silent: bool = False) -> tuple[bool, bool]:
     """
-    Ładuj zawartość notatnika z serwera.
-    Wykonuje splice - dołącza tylko nowe znaki bez nadpisywania całego edytora.
-    Zwraca True jeśli udało się załadować, False w przeciwnym wypadku.
+    Ładuj pełną zawartość notatnika z serwera.
+    Zwraca (sukces, czy_treść_się_zmieniła).
     """
     if not notebook_id:
-        return False
+        return False, False
 
     try:
-        with st.spinner("⏳ Ładuję zawartość notatnika..."):
-            content_response, error = make_request("GET", f"/api/notebooks/{notebook_id}/poll")
+        if silent:
+            content_response, error = make_request(
+                "GET", f"/api/notebooks/{notebook_id}"
+            )
+        else:
+            with st.spinner("⏳ Ładuję zawartość notatnika..."):
+                content_response, error = make_request(
+                    "GET", f"/api/notebooks/{notebook_id}"
+                )
 
         if error:
             if "403" in error:
@@ -233,47 +365,53 @@ def load_notebook_content(notebook_id: str) -> bool:
             else:
                 st.error(f"❌ {error}")
             st.session_state.notebook_content = ""
-            return False
+            return False, False
 
-        server_content = ""
-        if content_response and isinstance(content_response, dict):
-            data_part = content_response.get("data", {})
-            if isinstance(data_part, dict):
-                content_candidate = data_part.get("content")
-                if content_candidate is not None:
-                    server_content = str(content_candidate).strip()
+        server_content = assemble_text_from_events(content_response)
+        server_content = server_content if server_content is not None else ""
 
-        server_content = str(server_content) if server_content else ""
+        previous_content = st.session_state.notebook_content
+        content_changed = server_content != previous_content
 
-        # Splice: Jeśli zawartość się różni, dołącz tylko nowe znaki
-        if server_content != st.session_state.last_confirmed_content:
-            new_chars = server_content[len(st.session_state.last_confirmed_content):]
-            st.session_state.notebook_content += new_chars
-            st.session_state.last_confirmed_content = server_content
-        else:
-            st.session_state.notebook_content = server_content
-
+        st.session_state.notebook_content = server_content
+        st.session_state.last_confirmed_content = server_content
         st.session_state.last_loaded_notebook_id = notebook_id
-        return True
+        return True, content_changed
 
     except Exception as e:
         st.error(f"⚠️ Nieoczekiwany błąd: {str(e)}")
         st.session_state.notebook_content = ""
-        return False
+        return False, False
 
 
 def dashboard_view():
     """Widok Dashboard - lista i tworzenie notatników"""
     st.subheader("📚 Pulpit nawigacyjny")
 
-    col1, col2 = st.columns([2, 1])
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
 
     with col1:
         st.write("Zarządzaj swoimi notatnikami")
 
     with col2:
+        auto_refresh_enabled = st.checkbox(
+            "🔄 Auto-odświeżanie",
+            value=st.session_state.auto_refresh,
+            key="dashboard_auto_refresh",
+        )
+        st.session_state.auto_refresh = auto_refresh_enabled
+        if auto_refresh_enabled and st_autorefresh is None:
+            st.caption("Brak pakietu streamlit-autorefresh — przebuduj frontend.")
+
+    with col3:
+        if st.button("🔄 Odśwież listę", key="dashboard_manual_refresh"):
+            st.rerun()
+
+    with col4:
         if st.button("➕ Nowy notatnik", key="new_notebook_btn"):
             st.session_state.show_create_form = True
+
+    _trigger_autorefresh("dashboard_autorefresh")
 
     # Formularz tworzenia nowego notatnika
     if st.session_state.get("show_create_form", False):
@@ -328,7 +466,9 @@ def dashboard_view():
         with col1:
             if st.button(f"✏️ {notebook_title}", key=f"open_{notebook_id}"):
                 st.session_state.selected_notebook_id = notebook_id
-                if load_notebook_content(notebook_id):
+                st.session_state.notebook_content = ""
+                ok, _ = load_notebook_content(notebook_id)
+                if ok:
                     st.session_state.current_view = "editor"
                     st.rerun()
 
@@ -363,68 +503,90 @@ def dashboard_view():
 
 def editor_view():
     """Widok Edytora - edycja notatnika"""
+    notebook_id = st.session_state.selected_notebook_id
+
     if st.button("⬅️ Wróć do listy"):
         st.session_state.current_view = "dashboard"
         st.rerun()
 
-    notebook_id = st.session_state.selected_notebook_id
     st.subheader(f"✏️ Edytor - {notebook_id}")
     st.code(notebook_id, language="")
-
-    if st.session_state.last_loaded_notebook_id != notebook_id:
-        load_notebook_content(notebook_id)
 
     col1, col2 = st.columns([1, 3])
     with col1:
         auto_refresh_enabled = st.checkbox(
             "🔄 Auto-odświeżanie",
             value=st.session_state.auto_refresh,
-            key="auto_refresh_checkbox"
+            key="editor_auto_refresh",
         )
         st.session_state.auto_refresh = auto_refresh_enabled
+        if auto_refresh_enabled and st_autorefresh is None:
+            st.caption("Brak pakietu streamlit-autorefresh — przebuduj frontend.")
 
-    if auto_refresh_enabled and rerun_if_updated:
-        rerun_if_updated(seconds=5)
+    _trigger_autorefresh("editor_autorefresh")
 
-    current_content = st.session_state.notebook_content
+    if st.session_state.last_loaded_notebook_id != notebook_id:
+        load_notebook_content(notebook_id)
 
     edited_content = st.text_area(
         "Zawartość notatnika",
-        value=current_content,
+        value=st.session_state.notebook_content,
         height=300,
-        key="notebook_editor"
+        key="notebook_editor",
     )
+
+    if edited_content != st.session_state.notebook_content:
+        st.session_state.notebook_content = edited_content
+
+    has_local_edits = (
+        st.session_state.notebook_content != st.session_state.last_confirmed_content
+    )
+
+    if auto_refresh_enabled and not has_local_edits:
+        ok, content_changed = load_notebook_content(notebook_id, silent=True)
+        if ok and content_changed:
+            _clear_editor_widget()
+            st.rerun()
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         if st.button("🚀 Wyślij"):
-            delta = edited_content[len(st.session_state.last_confirmed_content):]
+            op_data = compute_edit_operation(
+                st.session_state.last_confirmed_content,
+                st.session_state.notebook_content,
+            )
 
-            if not delta:
+            if not op_data:
                 st.warning("Nie wprowadzono zmian")
             else:
-                data = {"content": delta}
-                response, error = make_request("PUT", f"/api/notebooks/{notebook_id}", data)
+                payload = build_update_payload(op_data)
+                response, error = make_request(
+                    "PUT", f"/api/notebooks/{notebook_id}", payload
+                )
 
                 if error:
                     st.error(error)
                 else:
-                    st.session_state.last_confirmed_content = edited_content
+                    st.session_state.last_confirmed_content = (
+                        st.session_state.notebook_content
+                    )
                     st.success("✅ Zmiana wysłana!")
-                    st.info("⏳ Przetwarzam wiadomość... poczekaj sekundę...")
-                    time.sleep(1)
-                    st.write("🔄 Ładuję zaktualizowaną zawartość...")
-                    if load_notebook_content(notebook_id):
-                        st.success("✅ Zawartość zaktualizowana!")
+                    time.sleep(0.5)
+                    ok, content_changed = load_notebook_content(
+                        notebook_id, silent=True
+                    )
+                    if ok and content_changed:
+                        _clear_editor_widget()
                         st.rerun()
-                    else:
-                        st.warning("⚠️ Nie udało się załadować zawartości. Kliknij 'Odśwież'.")
 
     with col2:
         if st.button("🔄 Odśwież"):
-            load_notebook_content(notebook_id)
-            st.rerun()
+            ok, content_changed = load_notebook_content(notebook_id)
+            if ok:
+                if content_changed:
+                    _clear_editor_widget()
+                st.rerun()
 
     with col3:
         if st.button("🗑️ Usuń"):
@@ -468,7 +630,6 @@ def editor_view():
                     st.sidebar.error(f"❌ {error}")
                 else:
                     st.sidebar.success(f"✅ Zaproszenie wysłane do {invite_email}")
-                    st.session_state.invite_email = ""
                     st.rerun()
 
 

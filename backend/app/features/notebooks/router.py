@@ -8,6 +8,7 @@ from app.features.notebooks.dto.append_to_notebook_dto import AppendToNotebookDt
 from app.features.notebooks.dto.invite_to_notebook_dto import InviteToNotebookDto
 from app.features.notebooks.services.create_notebook import create_notebook_service
 from app.features.notebooks.services.poll_changes import poll_notebook_changes_service
+from app.features.notebooks.services.get_notebook import get_notebook_service
 from app.features.notebooks.services.append_to_notebook import (
     append_to_notebook_service,
 )
@@ -81,7 +82,7 @@ async def append_to_notebook(
 ):
     try:
         notebook_id_res = await append_to_notebook_service(
-            db, auth_user_id, notebook_id, data.content
+            db, auth_user_id, notebook_id, data
         )
 
         # 202 accepted - indicatesthat the request has been accepted for processing,
@@ -114,6 +115,27 @@ async def poll_notebook_changes(
         return HTTPException(
             detail={
                 "message": "An error occurred while polling notebook changes",
+                "error": str(e),
+            },
+            status_code=e.code if isinstance(e, ErrorWithCode) else 500,
+        )
+
+
+@notebooks.get("/{notebook_id}")
+async def get_notebook(
+    notebook_id: str,
+    auth_user_id: str = Depends(jwt_auth_guard),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = get_notebook_service(db, auth_user_id, notebook_id)
+        return JSONResponse(
+            status_code=200, content={"status": "success", "data": result}
+        )
+    except Exception as e:
+        return HTTPException(
+            detail={
+                "message": "An error occurred while fetching notebook",
                 "error": str(e),
             },
             status_code=e.code if isinstance(e, ErrorWithCode) else 500,

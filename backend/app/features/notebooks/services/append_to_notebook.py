@@ -3,10 +3,11 @@ import time
 from sqlalchemy.orm import Session
 from app.features.notebooks.models.notebook import Notebook
 from app.core.errors.error_with_code import ErrorWithCode
+from app.features.notebooks.dto.append_to_notebook_dto import AppendToNotebookDto
 
 
 async def append_to_notebook_service(
-    db: Session, auth_user_id: str, notebook_id: str, content: str
+    db: Session, auth_user_id: str, notebook_id: str, data: AppendToNotebookDto
 ):
     notebook = db.query(Notebook).filter(Notebook.id == notebook_id).first()
     if not notebook:
@@ -19,9 +20,13 @@ async def append_to_notebook_service(
     if str(notebook.admin_id) != str(auth_user_id) and is_not_collaborator:
         raise ErrorWithCode("Only admin or collaborators can append to notebook", 403)
 
+    change = data.model_dump(exclude_none=True)
+    text = change.get("text")
+    if text is not None and change.get("content") is None:
+        change["content"] = text
+
     payload = {
         "notebook_id": notebook_id,
-        "content": content,
         "title": notebook.title,
         "user_id": auth_user_id,
         # track updates in collaborators and admin_id to save the state in cache
@@ -29,6 +34,7 @@ async def append_to_notebook_service(
         "admin_id": notebook.admin_id,
         "collaborators": notebook.collaborators or [],
         "timestamp": time.time(),
+        **change,
     }
 
     await kafka_manager.send_message("notebook_updates", payload)
