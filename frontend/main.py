@@ -25,6 +25,8 @@ if "selected_notebook_id" not in st.session_state:
     st.session_state.selected_notebook_id = None
 if "notebook_content" not in st.session_state:
     st.session_state.notebook_content = ""
+if "last_confirmed_content" not in st.session_state:
+    st.session_state.last_confirmed_content = ""
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = False
 if "last_loaded_notebook_id" not in st.session_state:
@@ -215,6 +217,7 @@ def sidebar_auth():
 def load_notebook_content(notebook_id: str) -> bool:
     """
     Ładuj zawartość notatnika z serwera.
+    Wykonuje splice - dołącza tylko nowe znaki bez nadpisywania całego edytora.
     Zwraca True jeśli udało się załadować, False w przeciwnym wypadku.
     """
     if not notebook_id:
@@ -232,16 +235,24 @@ def load_notebook_content(notebook_id: str) -> bool:
             st.session_state.notebook_content = ""
             return False
 
-        current_content = ""
+        server_content = ""
         if content_response and isinstance(content_response, dict):
             data_part = content_response.get("data", {})
             if isinstance(data_part, dict):
                 content_candidate = data_part.get("content")
                 if content_candidate is not None:
-                    current_content = str(content_candidate).strip()
+                    server_content = str(content_candidate).strip()
 
-        current_content = str(current_content) if current_content else ""
-        st.session_state.notebook_content = current_content
+        server_content = str(server_content) if server_content else ""
+
+        # Splice: Jeśli zawartość się różni, dołącz tylko nowe znaki
+        if server_content != st.session_state.last_confirmed_content:
+            new_chars = server_content[len(st.session_state.last_confirmed_content):]
+            st.session_state.notebook_content += new_chars
+            st.session_state.last_confirmed_content = server_content
+        else:
+            st.session_state.notebook_content = server_content
+
         st.session_state.last_loaded_notebook_id = notebook_id
         return True
 
@@ -358,6 +369,7 @@ def editor_view():
 
     notebook_id = st.session_state.selected_notebook_id
     st.subheader(f"✏️ Edytor - {notebook_id}")
+    st.code(notebook_id, language="")
 
     if st.session_state.last_loaded_notebook_id != notebook_id:
         load_notebook_content(notebook_id)
@@ -387,15 +399,18 @@ def editor_view():
 
     with col1:
         if st.button("🚀 Wyślij"):
-            if edited_content == current_content:
+            delta = edited_content[len(st.session_state.last_confirmed_content):]
+
+            if not delta:
                 st.warning("Nie wprowadzono zmian")
             else:
-                data = {"content": edited_content}
+                data = {"content": delta}
                 response, error = make_request("PUT", f"/api/notebooks/{notebook_id}", data)
 
                 if error:
                     st.error(error)
                 else:
+                    st.session_state.last_confirmed_content = edited_content
                     st.success("✅ Zmiana wysłana!")
                     st.info("⏳ Przetwarzam wiadomość... poczekaj sekundę...")
                     time.sleep(1)
@@ -434,6 +449,27 @@ def editor_view():
             if st.button("✗ Nie"):
                 st.session_state.show_delete_confirm = False
                 st.rerun()
+
+    # Sidebar - Zapraszanie
+    with st.sidebar:
+        st.sidebar.divider()
+        st.sidebar.subheader("👥 Udostępnianie")
+        invite_email = st.sidebar.text_input("E-mail współpracownika", key="invite_email")
+        if st.sidebar.button("Zaproś"):
+            if not invite_email or "@" not in invite_email:
+                st.sidebar.error("Wpisz poprawny e-mail")
+            else:
+                response, error = make_request(
+                    "PUT",
+                    f"/api/notebooks/{notebook_id}/invite",
+                    {"emails": [invite_email]}
+                )
+                if error:
+                    st.sidebar.error(f"❌ {error}")
+                else:
+                    st.sidebar.success(f"✅ Zaproszenie wysłane do {invite_email}")
+                    st.session_state.invite_email = ""
+                    st.rerun()
 
 
 def main():
