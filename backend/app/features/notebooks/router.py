@@ -15,6 +15,7 @@ from app.features.notebooks.services.append_to_notebook import (
 from app.features.notebooks.services.invite_to_notebook import (
     invite_to_notebook_service,
 )
+from app.features.notebooks.services.delete_notebook import delete_notebook_service
 from app.core.errors.error_with_code import ErrorWithCode
 from app.features.notebooks.services.get_user_related_notebooks import (
     get_user_related_notebooks_service,
@@ -136,6 +137,27 @@ async def get_notebook(
         return HTTPException(
             detail={
                 "message": "An error occurred while fetching notebook",
+                "error": str(e),
+            },
+            status_code=e.code if isinstance(e, ErrorWithCode) else 500,
+        )
+
+
+@notebooks.delete("/{notebook_id}")
+async def delete_notebook(
+    notebook_id: str,
+    auth_user_id: str = Depends(jwt_auth_guard),
+    db: Session = Depends(get_db),
+):
+    try:
+        result = delete_notebook_service(db, auth_user_id, notebook_id)
+        return JSONResponse(
+            status_code=200, content={"message": "Notebook deleted", "data": result}
+        )
+    except Exception as e:
+        return HTTPException(
+            detail={
+                "message": "An error occurred while deleting notebook",
                 "error": str(e),
             },
             status_code=e.code if isinstance(e, ErrorWithCode) else 500,

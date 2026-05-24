@@ -68,7 +68,12 @@ def _refresh_access_token() -> bool:
         return False
 
 
-def make_request(method: str, endpoint: str, data: Optional[Dict[str, Any]] = None, require_auth: bool = True) -> tuple[Optional[Dict], Optional[str]]:
+def make_request(
+    method: str,
+    endpoint: str,
+    data: Optional[Dict[str, Any]] = None,
+    require_auth: bool = True,
+) -> tuple[Optional[Dict], Optional[str]]:
     """
     Wykonaj zapytanie HTTP do backendu.
     Zwraca tuple: (response_data, error_message)
@@ -102,9 +107,13 @@ def make_request(method: str, endpoint: str, data: Optional[Dict[str, Any]] = No
                     if method == "GET":
                         response = requests.get(url, headers=headers, timeout=10)
                     elif method == "POST":
-                        response = requests.post(url, json=data, headers=headers, timeout=10)
+                        response = requests.post(
+                            url, json=data, headers=headers, timeout=10
+                        )
                     elif method == "PUT":
-                        response = requests.put(url, json=data, headers=headers, timeout=10)
+                        response = requests.put(
+                            url, json=data, headers=headers, timeout=10
+                        )
                     elif method == "DELETE":
                         response = requests.delete(url, headers=headers, timeout=10)
                 except requests.exceptions.RequestException as e:
@@ -130,7 +139,9 @@ def make_request(method: str, endpoint: str, data: Optional[Dict[str, Any]] = No
                 error_data = response.json()
                 error_detail = error_data.get("detail", {})
                 if isinstance(error_detail, dict):
-                    error_msg = error_detail.get("error", error_detail.get("message", response.text))
+                    error_msg = error_detail.get(
+                        "error", error_detail.get("message", response.text)
+                    )
                 else:
                     error_msg = str(error_detail)
             except:
@@ -140,7 +151,10 @@ def make_request(method: str, endpoint: str, data: Optional[Dict[str, Any]] = No
         return response.json(), None
 
     except requests.exceptions.ConnectionError:
-        return None, "Nie można połączyć się z backendem. Sprawdź czy serwer działa na http://localhost:8000"
+        return (
+            None,
+            "Nie można połączyć się z backendem. Sprawdź czy serwer działa na http://localhost:8000",
+        )
     except requests.exceptions.Timeout:
         return None, "Timeout - serwer nie odpowiada"
     except requests.exceptions.RequestException as e:
@@ -177,7 +191,11 @@ def assemble_text_from_events(data: Optional[Dict[str, Any]]) -> str:
 
         op = event.get("op")
         # Prefer char_start (backend format), fall back to index
-        index = event.get("char_start") if event.get("char_start") is not None else event.get("index", 0)
+        index = (
+            event.get("char_start")
+            if event.get("char_start") is not None
+            else event.get("index", 0)
+        )
         try:
             index = int(index)
         except Exception:
@@ -187,26 +205,23 @@ def assemble_text_from_events(data: Optional[Dict[str, Any]]) -> str:
         length = int(event.get("length", 0) or 0)
 
         if op == "insert":
-            for i, ch in enumerate(text):
-                insert_pos = max(0, min(len(buffer), index + i))
-                buffer.insert(insert_pos, ch)
+            insert_pos = max(0, min(len(buffer), index))
+            buffer[insert_pos:insert_pos] = list(text)
         elif op == "delete":
             if index < 0:
                 continue
-            if index < len(buffer):
-                del buffer[index : index + length]
+            delete_end = min(len(buffer), index + length)
+            if index < delete_end:
+                del buffer[index:delete_end]
         elif op == "replace":
             new_text = text if text else event.get("content", "")
-            buffer = list(new_text)
+            replace_end = min(len(buffer), index + length)
+            if length > 0 and 0 <= index <= len(buffer):
+                buffer[index:replace_end] = list(new_text)
+            else:
+                buffer = list(new_text)
 
     return "".join(buffer)
-
-
-def _line_col_from_index(text: str, index: int) -> tuple[int, int]:
-    line = text.count("\n", 0, index) + 1
-    last_newline = text.rfind("\n", 0, index)
-    col = index - last_newline - 1 if last_newline != -1 else index
-    return line, col
 
 
 def compute_edit_operation(old_text: str, new_text: str) -> Optional[Dict[str, Any]]:
@@ -218,32 +233,30 @@ def compute_edit_operation(old_text: str, new_text: str) -> Optional[Dict[str, A
 
     if len(ops) == 1:
         tag, i1, i2, j1, j2 = ops[0]
-        line, col = _line_col_from_index(old_text, i1)
 
         if tag == "delete":
             return {
                 "op": "delete",
-                "line_start": line,
-                "char_start": col,
+                "line_start": 1,
+                "char_start": i1,
                 "text": "",
                 "length": i2 - i1,
             }
         if tag == "insert":
             return {
                 "op": "insert",
-                "line_start": line,
-                "char_start": col,
+                "line_start": 1,
+                "char_start": i1,
                 "text": new_text[j1:j2],
             }
         if tag == "replace":
             return {
                 "op": "replace",
-                "line_start": line,
-                "char_start": col,
+                "line_start": 1,
+                "char_start": i1,
                 "text": new_text[j1:j2],
                 "length": i2 - i1,
             }
-
     # Fallback: wyślij pełne nadpisanie, jeżeli zmiana jest złożona.
     return {"op": "replace", "text": new_text, "line_start": 1, "char_start": 0}
 
@@ -284,14 +297,18 @@ def sidebar_auth():
     if auth_tab == "Logowanie":
         st.sidebar.subheader("Logowanie")
         login_email = st.sidebar.text_input("Email", key="login_email")
-        login_password = st.sidebar.text_input("Hasło", type="password", key="login_password")
+        login_password = st.sidebar.text_input(
+            "Hasło", type="password", key="login_password"
+        )
 
         if st.sidebar.button("Zaloguj się"):
             if not login_email or not login_password:
                 st.sidebar.error("Uzupełnij wszystkie pola")
             else:
                 data = {"email": login_email, "password": login_password}
-                response, error = make_request("POST", "/auth/login", data, require_auth=False)
+                response, error = make_request(
+                    "POST", "/auth/login", data, require_auth=False
+                )
 
                 if error:
                     st.sidebar.error(error)
@@ -308,7 +325,9 @@ def sidebar_auth():
         reg_firstname = st.sidebar.text_input("Imię", key="reg_firstname")
         reg_lastname = st.sidebar.text_input("Nazwisko", key="reg_lastname")
         reg_email = st.sidebar.text_input("Email", key="reg_email")
-        reg_password = st.sidebar.text_input("Hasło", type="password", key="reg_password")
+        reg_password = st.sidebar.text_input(
+            "Hasło", type="password", key="reg_password"
+        )
 
         if st.sidebar.button("Zarejestruj się"):
             if not all([reg_firstname, reg_lastname, reg_email, reg_password]):
@@ -318,29 +337,41 @@ def sidebar_auth():
                     "firstname": reg_firstname,
                     "lastname": reg_lastname,
                     "email": reg_email,
-                    "password": reg_password
+                    "password": reg_password,
                 }
-                response, error = make_request("POST", "/auth/signup", data, require_auth=False)
+                response, error = make_request(
+                    "POST", "/auth/signup", data, require_auth=False
+                )
 
                 if error:
                     st.sidebar.error(error)
                 else:
                     # Po signup trzeba zalogować się, aby otrzymać tokeny
                     login_data = {"email": reg_email, "password": reg_password}
-                    login_response, login_error = make_request("POST", "/auth/login", login_data, require_auth=False)
+                    login_response, login_error = make_request(
+                        "POST", "/auth/login", login_data, require_auth=False
+                    )
 
                     if login_error:
-                        st.sidebar.error(f"Rejestracja ok, ale logowanie nie powiodło się: {login_error}")
+                        st.sidebar.error(
+                            f"Rejestracja ok, ale logowanie nie powiodło się: {login_error}"
+                        )
                     else:
                         response_data = login_response.get("data", {})
-                        st.session_state.access_token = response_data.get("access_token")
-                        st.session_state.refresh_token = response_data.get("refresh_token")
+                        st.session_state.access_token = response_data.get(
+                            "access_token"
+                        )
+                        st.session_state.refresh_token = response_data.get(
+                            "refresh_token"
+                        )
                         st.session_state.user_email = reg_email
                         st.sidebar.success("Zarejestrowano i zalogowano pomyślnie!")
                         st.rerun()
 
 
-def load_notebook_content(notebook_id: str, *, silent: bool = False) -> tuple[bool, bool]:
+def load_notebook_content(
+    notebook_id: str, *, silent: bool = False
+) -> tuple[bool, bool]:
     """
     Ładuj pełną zawartość notatnika z serwera.
     Zwraca (sukces, czy_treść_się_zmieniła).
@@ -361,7 +392,9 @@ def load_notebook_content(notebook_id: str, *, silent: bool = False) -> tuple[bo
 
         if error:
             if "403" in error:
-                st.error("🔒 Błąd uprawnień - upewnij się, że Twój e-mail został zaproszony do tego notatnika")
+                st.error(
+                    "🔒 Błąd uprawnień - upewnij się, że Twój e-mail został zaproszony do tego notatnika"
+                )
             else:
                 st.error(f"❌ {error}")
             st.session_state.notebook_content = ""
@@ -486,7 +519,9 @@ def dashboard_view():
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("✓ Tak", key=f"confirm_delete_{notebook_id}"):
-                    response, error = make_request("DELETE", f"/api/notebooks/{notebook_id}")
+                    response, error = make_request(
+                        "DELETE", f"/api/notebooks/{notebook_id}"
+                    )
                     if error:
                         st.error(error)
                     else:
@@ -598,7 +633,9 @@ def editor_view():
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✓ Tak, usuń"):
-                response, error = make_request("DELETE", f"/api/notebooks/{notebook_id}")
+                response, error = make_request(
+                    "DELETE", f"/api/notebooks/{notebook_id}"
+                )
                 if error:
                     st.error(error)
                 else:
@@ -616,7 +653,9 @@ def editor_view():
     with st.sidebar:
         st.sidebar.divider()
         st.sidebar.subheader("👥 Udostępnianie")
-        invite_email = st.sidebar.text_input("E-mail współpracownika", key="invite_email")
+        invite_email = st.sidebar.text_input(
+            "E-mail współpracownika", key="invite_email"
+        )
         if st.sidebar.button("Zaproś"):
             if not invite_email or "@" not in invite_email:
                 st.sidebar.error("Wpisz poprawny e-mail")
@@ -624,7 +663,7 @@ def editor_view():
                 response, error = make_request(
                     "PUT",
                     f"/api/notebooks/{notebook_id}/invite",
-                    {"emails": [invite_email]}
+                    {"emails": [invite_email]},
                 )
                 if error:
                     st.sidebar.error(f"❌ {error}")
