@@ -15,18 +15,19 @@ This project realizes a functionality of a multisession (multi threaded) collabo
 ## 🚀 Quick Start (Docker Compose)
 
 ### Requirements
+
 - Docker & Docker Compose
-- Port 8000, 8501, 9092, 5432 available
+- Port 8000, 8501, 8888, 9092, 5432 available
 
 ### 1. Generate Environment Variables
 
-Open terminal in root folder and run:
+Open a terminal in the repository root and run:
 
 ```bash
 python3 ./backend/app/init_env.py
 ```
 
-This creates `backend/app/.env` with test secrets.
+This creates `backend/app/.env` from `backend/app/.env.example`.
 
 ### 2. Run Docker Engine
 
@@ -40,16 +41,19 @@ In the root folder, run:
 docker compose up --build
 ```
 
-This will start:
+This starts:
+
 - ✅ PostgreSQL (Database)
 - ✅ Zookeeper + Kafka (Message Broker)
 - ✅ Backend API (FastAPI)
 - ✅ Worker (Kafka Consumer)
 - ✅ Frontend (Streamlit)
+- ✅ Adminer (Database UI)
 
 ### 4. Wait for Initialization (~30-60 seconds)
 
-Look for logs like:
+On the first start the backend creates the database schema automatically and the worker starts consuming Kafka messages. Look for logs like:
+
 ```
 [WORKER] Consumer is listening for tasks...
 WARNING streamlit.server.server: No users have logged-in yet...
@@ -57,29 +61,32 @@ WARNING streamlit.server.server: No users have logged-in yet...
 
 ### 5. Access the Applications
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| **Frontend** | http://localhost:8501 | Web UI (Streamlit) |
-| **Backend API** | http://localhost:8000 | REST API |
-| **API Docs** | http://localhost:8000/docs | Swagger Documentation |
-| **Database UI** | http://localhost:8888 | Adminer (DB Admin) |
+| Service         | URL                        | Purpose               |
+| --------------- | -------------------------- | --------------------- |
+| **Frontend**    | http://localhost:8501      | Web UI (Streamlit)    |
+| **Backend API** | http://localhost:8000      | REST API              |
+| **API Docs**    | http://localhost:8000/docs | Swagger Documentation |
+| **Database UI** | http://localhost:8888      | Adminer (DB Admin)    |
 
 ---
 
 ## 🎯 Using the Application
 
 ### 1. Register / Login
+
 - Open http://localhost:8501
 - Click "Rejestracja" (Register) in sidebar
 - Enter name, email, password
 - Login with your credentials
 
 ### 2. Create Notebook
+
 - Click "➕ Nowy notatnik" (New Notebook)
 - Enter title
 - Notebook appears in history
 
 ### 3. Edit Notebook
+
 - Select notebook from "Historia" (History)
 - Click "✏️ Otwórz" (Open)
 - Edit content
@@ -88,22 +95,53 @@ WARNING streamlit.server.server: No users have logged-in yet...
 - Click "🔄 Odśwież teraz" (Refresh) to see changes
 
 ### 4. Auto-Refresh
+
 - Check "🔄 Auto-odświeżanie" (Auto-refresh)
 - Changes update automatically every 5 seconds
 
 ---
+
+## 💾 Data Storage
+
+The application stores data in two places:
+
+- `backend/data/notebook_<uuid>/` — notebook state persisted by the backend/worker
+- `frontend/history_<email>.json` — per-user notebook history used by the Streamlit UI
+
+Inside each notebook directory you will typically see:
+
+- `cache.json` — latest notebook metadata and change cache
+- `content.json` or `content.txt` — notebook content representation
+
+Example backend notebook layout:
+
+```text
+backend/data/notebook_2322a4da-7550-4de5-8945-5e9b9341def6/
+├── cache.json
+└── content.json
+```
+
+Example frontend history file:
+
+```json
+{
+  "affb363b-b7c1-4af0-9915-515856cba892": "notatnik1"
+}
+```
 
 ## 💻 Local Development (Without Docker)
 
 ### Install Dependencies
 
 Frontend:
+
 ```bash
 cd frontend
 pip install -r requirements.txt
 ```
 
 Backend:
+
 ```bash
 cd backend
 pip install -r requirements.txt
@@ -115,7 +153,7 @@ If backend is running in Docker:
 
 ```bash
 cd frontend
-set BACKEND_URL=http://localhost:8000
+export BACKEND_URL=http://localhost:8000
 streamlit run main.py
 ```
 
@@ -128,6 +166,7 @@ Frontend opens at http://localhost:8501
 ### Environment Variables
 
 **Backend** (`backend/app/.env`):
+
 ```env
 ACCESS_SECRET=your_secret_key
 REFRESH_SECRET=your_refresh_secret
@@ -135,11 +174,13 @@ ALGORITHM=HS256
 ```
 
 **Frontend** (`docker-compose.yaml`):
+
 ```yaml
 environment:
-  - BACKEND_URL=http://api:8000  # In Docker
-  - BACKEND_URL=http://localhost:8000  # Local development
+  - BACKEND_URL=http://api:8000 # In Docker
 ```
+
+For local development, set `BACKEND_URL=http://localhost:8000` in your shell before running Streamlit.
 
 ---
 
@@ -177,6 +218,7 @@ environment:
 ### Data Flow
 
 **Writing a Notebook:**
+
 ```
 Frontend (PUT)
     ↓
@@ -194,6 +236,7 @@ Frontend GET /poll (reads & displays)
 ### JSON Response Format
 
 All API responses wrapped in:
+
 ```json
 {
   "message": "Operation description",
@@ -214,11 +257,13 @@ All API responses wrapped in:
 ### View Logs
 
 All containers:
+
 ```bash
 docker compose logs -f
 ```
 
 Specific service:
+
 ```bash
 docker compose logs -f frontend
 docker compose logs -f api
@@ -228,6 +273,7 @@ docker compose logs -f worker
 ### Frontend Debug Panel
 
 In the editor, open the "🔧 DEBUG - Stan notatnika" expander to see:
+
 - Notebook ID
 - Content type
 - Text length
@@ -236,6 +282,7 @@ In the editor, open the "🔧 DEBUG - Stan notatnika" expander to see:
 ### Check Database
 
 Open http://localhost:8888 (Adminer UI)
+
 - User: `user`
 - Password: `password`
 - Database: `notebook_db`
@@ -252,20 +299,24 @@ docker compose exec kafka kafka-console-consumer \
 ### Common Issues
 
 **Issue: Can't login**
+
 - Check if backend is running: `curl http://localhost:8000/docs`
 - View logs: `docker compose logs api`
 - Restart: `docker compose restart`
 
 **Issue: Notebook content is empty**
+
 - Check worker: `docker compose logs worker`
 - Click "🔄 Odśwież teraz" (Refresh Now)
 - Wait 2-3 seconds after sending
 
 **Issue: Error 403 - Permission Denied**
+
 - Login as notebook owner (creator)
 - Check database admin_id matches your user ID
 
 **Issue: Kafka not starting**
+
 ```bash
 docker compose down
 docker compose up --build -d
@@ -294,31 +345,29 @@ docker compose down -v
 ## 📦 Project Structure
 
 ```
-systemy_rozproszone/
+multisession-notebook/
 ├── docker-compose.yaml       ← Service orchestration
 ├── README.md                 ← This file
 │
 ├── frontend/
 │   ├── Dockerfile            ← Frontend container
 │   ├── main.py               ← Streamlit app
-│   ├── requirements.txt       ← Python dependencies
+│   ├── requirements.txt      ← Python dependencies
 │   └── history_*.json        ← User notebook history
 │
 ├── backend/
 │   ├── Dockerfile            ← Backend container
-│   ├── requirements.txt       ← Python dependencies
+│   ├── requirements.txt      ← Python dependencies
 │   ├── app/
 │   │   ├── main.py           ← FastAPI entry point
-│   │   ├── features/
-│   │   │   ├── auth/         ← Authentication
-│   │   │   ├── notebooks/    ← Notebook feature
-│   │   │   └── users/        ← User management
-│   │   ├── workers/          ← Kafka consumer
-│   │   ├── core/             ← Database, Kafka config
-│   │   └── .env              ← Secrets
+│   │   ├── init_env.py       ← Creates backend/app/.env from the example file
+│   │   ├── .env.example      ← Local environment template
+│   │   ├── features/         ← Auth, notebook, and user features
+│   │   ├── workers/          ← Kafka consumer/session manager
+│   │   └── core/             ← Database, Kafka, and lifespan setup
 │   └── data/
 │       └── notebook_{id}/    ← Notebook storage
-│           ├── content.txt   ← Content file
+│           ├── content.json  ← Event chain / notebook content data
 │           └── cache.json    ← Cache
 │
 └── postgres_data/            ← Database volume
@@ -343,5 +392,4 @@ This is an educational project for the "Distributed Systems" course.
 
 ---
 
-**Last Updated:** 2026-03-29
-
+**Last Updated:** 2026-06-08
